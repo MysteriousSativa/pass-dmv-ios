@@ -39,8 +39,16 @@ workflows:
       - name: Set up code signing (create cert + profile if missing)
         script: |
           keychain initialize
+          # Create an iOS Distribution certificate (with private key) if the
+          # account doesn't have one yet — saved locally so it can be added to
+          # the keychain. Harmless if one already exists.
+          app-store-connect create-certificate --type IOS_DISTRIBUTION --save || \
+            echo "Distribution certificate already exists or could not be created; continuing."
+          # Create/fetch the App Store provisioning profile for our bundle id.
           app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          # Load all fetched certificates into the build keychain.
           keychain add-certificates
+          # Patch the Xcode project to use the fetched profile + certificate.
           xcode-project use-profiles
       - name: Increment build number
         script: |
