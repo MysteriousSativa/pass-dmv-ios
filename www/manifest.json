@@ -1,0 +1,26 @@
+{
+  "name": "Drive Ready — US Permit Test Prep",
+  "short_name": "Drive Ready",
+  "description": "Study for your US driver's permit test in English or Spanish. 11 states active, all 50 coming.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e4474",
+  "theme_color": "#0e4474",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "utilities"],
+  "lang": "en-US"
+}
