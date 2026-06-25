@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Generated native project (Codemagic regenerates this in the cloud build)
+ios/
+
+# Generated assets output
+www/cordova.js
+www/cordova_plugins.js
+
+# OS / editor
+.DS_Store
+*.log
+build/
+
+# NEVER commit signing keys / secrets
+*.p8
+AuthKey_*.p8
+*.mobileprovision
+*.p12
+*.cer

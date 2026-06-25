@@ -1,0 +1,70 @@
+workflows:
+  ios-passdmv:
+    name: Pass DMV iOS (App Store)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    # 1) In Codemagic UI -> Teams/App settings -> Integrations -> App Store Connect,
+    #    add your API key and name it exactly: PassDMV_ASC_Key
+    integrations:
+      app_store_connect: PassDMV_ASC_Key
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.passdmv.app
+      vars:
+        BUNDLE_ID: "com.passdmv.app"
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        # 2) After you create the app record in App Store Connect, paste its Apple ID here
+        #    (App Store Connect -> your app -> App Information -> "Apple ID", a 10-digit number).
+        APP_STORE_APPLE_ID: 6784378286
+      node: 20
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+      - name: Generate native iOS project
+        script: |
+          # ios/ is generated fresh in the cloud (it is gitignored)
+          if [ ! -d "ios" ]; then npx cap add ios; fi
+          npx cap sync ios
+      - name: Generate app icon & splash
+        script: |
+          npx capacitor-assets generate --ios || true
+      - name: Set app display name (Pass DMV)
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Pass DMV" "ios/App/App/Info.plist" || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Pass DMV" "ios/App/App/Info.plist"
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios/App && pod install
+      - name: Set up provisioning profiles
+        script: |
+          xcode-project use-profiles
+      - name: Increment build number
+        script: |
+          cd ios/App
+          # Auto-increment so every upload has a unique build number
+          agvtool new-version -all $(($(date +%s) / 60)) || true
+      - name: Build the IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight automatically. Flip to a phased/manual App Store
+        # release only after you've tested in TestFlight.
+        submit_to_testflight: true
+        submit_to_app_store: false
