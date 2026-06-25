@@ -36,17 +36,22 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App && pod install
-      - name: Set up code signing (create cert + profile if missing)
+      - name: Set up code signing (create cert + profile)
         script: |
           keychain initialize
-          # Create an iOS Distribution certificate (with private key) if the
-          # account doesn't have one yet — saved locally so it can be added to
-          # the keychain. Harmless if one already exists.
-          app-store-connect create-certificate --type IOS_DISTRIBUTION --save || \
-            echo "Distribution certificate already exists or could not be created; continuing."
-          # Create/fetch the App Store provisioning profile for our bundle id.
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
-          # Load all fetched certificates into the build keychain.
+          # Generate a private key we control. A distribution certificate cannot
+          # be created OR used for signing without an accompanying private key,
+          # and this account has none locally — so we make one here.
+          openssl genrsa -out /tmp/dist_cert_key.pem 2048
+          # Create (or reuse) the iOS Distribution certificate from our key and
+          # the App Store provisioning profile for our bundle id, downloading
+          # both so they can be used to sign the archive.
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key=@file:/tmp/dist_cert_key.pem \
+            --create
+          # Load the fetched certificate (paired with our private key) into the
+          # build keychain.
           keychain add-certificates
           # Patch the Xcode project to use the fetched profile + certificate.
           xcode-project use-profiles
