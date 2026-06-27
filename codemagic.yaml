@@ -15,7 +15,7 @@ workflows:
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 6784378286
       node: 20
-      xcode: "16"
+      xcode: latest
       cocoapods: default
 
     scripts:
@@ -65,6 +65,30 @@ workflows:
             --certificate-key=@file:/tmp/dist_cert_key.pem \
             --create
           keychain add-certificates
+
+          # Extract UUID and Team ID from the installed provisioning profile
+          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "Profiles in $PROF_DIR:"
+          ls "$PROF_DIR" 2>/dev/null || echo "(none)"
+          PROFILE=$(ls "$PROF_DIR"/*.mobileprovision 2>/dev/null | head -1)
+          if [ -z "$PROFILE" ]; then
+            echo "ERROR: No provisioning profile found"
+            exit 1
+          fi
+          echo "Using profile: $PROFILE"
+          PLIST=$(openssl smime -inform der -verify -noverify -in "$PROFILE" 2>/dev/null)
+          PROFILE_UUID=$(echo "$PLIST" | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['UUID'])")
+          TEAM_ID=$(echo "$PLIST" | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['TeamIdentifier'][0])")
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Team ID: $TEAM_ID"
+
+          # Save for next step
+          echo "export PROFILE_UUID='$PROFILE_UUID'" > /tmp/signing.env
+          echo "export TEAM_ID='$TEAM_ID'" >> /tmp/signing.env
+
+          # Patch project: switch Automatic -> Manual signing
+          PROJECT="ios/App/App.xcodeproj/project.pbxproj"
+          sed -i '' "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g" "$PROJECT"
           xcode-project use-profiles
       - name: Increment build number
         script: |
@@ -72,13 +96,12 @@ workflows:
           agvtool new-version -all $(($(date +%s) / 60)) || true
       - name: Build the IPA
         script: |
-          PROFILE=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null | head -1)
-          UUID=$(security cms -D -i "$PROFILE" 2>/dev/null | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['UUID'])")
-          echo "Provisioning profile UUID: $UUID"
+          source /tmp/signing.env
+          echo "Signing: UUID=$PROFILE_UUID  TEAM=$TEAM_ID"
           xcode-project build-ipa \
             --workspace "$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
-            --archive-flags "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY='Apple Distribution' PROVISIONING_PROFILE='$UUID'"
+            --archive-flags "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE=$PROFILE_UUID DEVELOPMENT_TEAM=$TEAM_ID"
 
     artifacts:
       - build/ios/ipa/*.ipa
