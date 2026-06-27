@@ -21,24 +21,17 @@ workflows:
     scripts:
       - name: Install npm dependencies
         script: |
-          npm install
+          npm install --legacy-peer-deps
       - name: Generate native iOS project
         script: |
           if [ ! -d "ios" ]; then npx cap add ios; fi
           npx cap sync ios
-      - name: Add Game Center entitlement
+      - name: Remove Game Center entitlement (not used by this app)
         script: |
-          ENT="ios/App/App/App.entitlements"
-          if [ ! -f "$ENT" ]; then
-            printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0">' '<dict>' '</dict>' '</plist>' > "$ENT"
+          ENTITLEMENTS="ios/App/App/App.entitlements"
+          if [ -f "$ENTITLEMENTS" ]; then
+            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.game-center" "$ENTITLEMENTS" 2>/dev/null || true
           fi
-          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.game-center bool true" "$ENT" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :com.apple.developer.game-center true" "$ENT"
-          PBX="ios/App/App.xcodeproj/project.pbxproj"
-          if ! grep -q "CODE_SIGN_ENTITLEMENTS" "$PBX"; then
-            /usr/bin/perl -0pi -e 's/(PRODUCT_BUNDLE_IDENTIFIER = com\.passdmv\.app;)/$1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;/g' "$PBX"
-          fi
-          echo "--- App.entitlements ---"; cat "$ENT"
-          echo "--- pbxproj entitlement refs ---"; grep -n "CODE_SIGN_ENTITLEMENTS" "$PBX" || true
       - name: Generate app icon and splash
         script: |
           npx capacitor-assets generate --ios || true
@@ -49,24 +42,35 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App && pod install
+      - name: Manage iOS Distribution certificates (stay under Apple 2-cert limit)
+        script: |
+          set +e
+          CERT_JSON=$(app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null)
+          CERT_COUNT=$(echo "$CERT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
+          echo "Found $CERT_COUNT iOS Distribution certificate(s)"
+          if [ "$CERT_COUNT" -ge 2 ]; then
+            OLDEST_ID=$(echo "$CERT_JSON" | python3 -c "
+import json, sys
+certs = json.load(sys.stdin)
+sorted_certs = sorted(certs, key=lambda x: x.get('attributes', {}).get('expirationDate', ''))
+for c in sorted_certs[:-1]:
+    print(c['id'])
+" 2>/dev/null)
+            for cert_id in $OLDEST_ID; do
+              echo "Revoking old certificate: $cert_id"
+              app-store-connect certificates revoke "$cert_id" || true
+            done
+          fi
+          set -e
       - name: Set up code signing (create cert + profile)
         script: |
           keychain initialize
-          # Generate a private key we control. A distribution certificate cannot
-          # be created OR used for signing without an accompanying private key,
-          # and this account has none locally — so we make one here.
           openssl genrsa -out /tmp/dist_cert_key.pem 2048
-          # Create (or reuse) the iOS Distribution certificate from our key and
-          # the App Store provisioning profile for our bundle id, downloading
-          # both so they can be used to sign the archive.
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --certificate-key=@file:/tmp/dist_cert_key.pem \
             --create
-          # Load the fetched certificate (paired with our private key) into the
-          # build keychain.
           keychain add-certificates
-          # Patch the Xcode project to use the fetched profile + certificate.
           xcode-project use-profiles
       - name: Increment build number
         script: |
