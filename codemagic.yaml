@@ -14,7 +14,7 @@ workflows:
         XCODE_SCHEME: "App"
         APP_STORE_APPLE_ID: 6784378286
       node: 20
-      xcode: 16.4
+      xcode: latest
       cocoapods: default
     scripts:
       - name: Install npm dependencies
@@ -81,7 +81,7 @@ workflows:
           printf '{"info":{"author":"xcode","version":1},"properties":{"grid-size":"regular"}}' \
             > "$EXT_DIR/Stickers.xcstickers/Contents.json"
 
-          echo "=== Generating iMessage icon PNGs (RGBA, Xcode 16.4) ==="
+          echo "=== Generating iMessage icon PNGs ==="
           python3 - << 'PYEOF'
           import struct, zlib, sys, os
           def mk(path, w, h):
@@ -95,7 +95,7 @@ workflows:
                   rows += row
               png = (b'\x89PNG\r\n\x1a\n'
                      + ck(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
-                     + ck(b'IDAT', zlib.compress(rows, 6))
+                     + ck(b'IDAT', zlib.compress(rows, 9))
                      + ck(b'IEND', b''))
               with open(path, 'wb') as f:
                   f.write(png)
@@ -123,7 +123,7 @@ workflows:
           sys.exit(errs)
           PYEOF
 
-          echo "=== Writing Contents.json for stickersiconset ==="
+          echo "=== Writing Contents.json ==="
           cat > "$ICON_DIR/Contents.json" << 'CONTENTSEOF'
           {
             "images" : [
@@ -141,10 +141,19 @@ workflows:
           }
           CONTENTSEOF
 
-          echo "=== Icon files ==="
+          echo "=== Verifying icon files ==="
           ls -la "$ICON_DIR/"
-          echo "=== Contents.json ==="
-          cat "$ICON_DIR/Contents.json"
+          echo "=== Verifying actool compiles icons cleanly ==="
+          mkdir -p /tmp/actool_verify
+          xcrun actool \
+            --compile /tmp/actool_verify \
+            --platform iphoneos \
+            --minimum-deployment-target 14.0 \
+            --output-format human-readable-text \
+            --warnings --errors --notices \
+            "$EXT_DIR/Stickers.xcstickers" 2>&1 || true
+          echo "actool output dir:"
+          ls -la /tmp/actool_verify/ 2>/dev/null || echo "(empty)"
 
           echo "=== Copying sticker PNGs ==="
           for name in conie_lets_go conie_passed conie_you_got_this conie_studying conie_hi conie_nervous; do
@@ -171,7 +180,7 @@ workflows:
               "$name" > "$EXT_DIR/Stickers.xcstickers/${name}.sticker/Contents.json"
           done
 
-          echo "=== Injecting xcodeproj target (if needed) ==="
+          echo "=== Injecting xcodeproj target (skip if exists) ==="
           ruby - << 'RUBYEOF'
           require 'xcodeproj'
           proj_path = 'ios/App/App.xcodeproj'
@@ -212,13 +221,12 @@ workflows:
           bf = embed_phase.add_file_reference(sticker_target.product_reference)
           bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
           project.save
-          puts "xcstickers ref: path=#{xcstickers.path} src_tree=#{xcstickers.source_tree}"
+          puts "xcstickers ref: path=#{xcstickers.path}"
           puts 'StickerPackExtension injected successfully'
           RUBYEOF
 
           echo "=== Final structure ==="
           find ios/App/StickerPackExtension -type f | sort
-          grep "xcstickers" ios/App/App.xcodeproj/project.pbxproj | head -5
       - name: Revoke old Distribution certificates (one-time cleanup + ongoing guard)
         script: |
           set +e
@@ -281,6 +289,11 @@ workflows:
           echo "export TEAM_ID='$TEAM_ID'" >> /tmp/signing.env
           sed -i '' "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g" ios/App/App.xcodeproj/project.pbxproj 2>/dev/null || true
           xcode-project use-profiles
+      - name: Clear derived data cache
+        script: |
+          echo "Clearing Xcode derived data to force fresh icon compilation..."
+          rm -rf ~/Library/Developer/Xcode/DerivedData/
+          echo "Done."
       - name: Increment build number
         script: |
           cd ios/App
