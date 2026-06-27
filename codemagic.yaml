@@ -115,10 +115,9 @@ workflows:
 
           sticker_target.resources_build_phase.files.each(&:remove_from_project) rescue nil
 
-          ext_grp = project.main_group.find_subpath('StickerPackExtension', true)
-          xcstickers = ext_grp.new_reference('Stickers.xcstickers')
+          xcstickers = project.main_group.new_reference('StickerPackExtension/Stickers.xcstickers')
           xcstickers.last_known_file_type = 'folder.stickers'
-          xcstickers.source_tree = '<group>'
+          xcstickers.source_tree = 'SOURCE_ROOT'
           sticker_target.add_resources([xcstickers])
 
           main_target.add_dependency(sticker_target)
