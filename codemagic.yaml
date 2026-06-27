@@ -25,6 +25,11 @@ workflows:
           rm -rf ios
           npx cap add ios
           npx cap sync ios
+      - name: Add Game Center entitlement
+        script: |
+          ENTITLEMENTS="ios/App/App/App.entitlements"
+          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.game-center bool true" "$ENTITLEMENTS" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :com.apple.developer.game-center true" "$ENTITLEMENTS" || true
       - name: Generate app icon and splash
         script: |
           npx capacitor-assets generate --ios || true
@@ -35,7 +40,7 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App && pod install
-      - name: Revoke old Distribution certificates (one-time cleanup + ongoing guard)
+      - name: Revoke old Distribution certificates
         script: |
           set +e
           keychain initialize
