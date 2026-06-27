@@ -81,18 +81,23 @@ workflows:
             > "$EXT_DIR/Stickers.xcstickers/Contents.json"
 
           ICON_DIR="$EXT_DIR/Stickers.xcstickers/iMessage App Icon.stickersiconset"
-          python3 << 'PYEOF'
-          import struct, zlib
+          python3 - << 'PYEOF'
+          import struct, zlib, sys, os
           def mk(p, w, h):
-              ck = lambda t,d: struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
-              row = b'\x00'+b'\x4A\x8C\xD6'*w
-              open(p,'wb').write(b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+ck(b'IDAT',zlib.compress(row*h,1))+ck(b'IEND',b''))
-              print(f'  PNG {w}x{h} -> {p}')
-          d='ios/App/StickerPackExtension/Stickers.xcstickers/iMessage App Icon.stickersiconset'
-          for w,h,n in [(54,40,'msg-27x20@2x.png'),(81,60,'msg-27x20@3x.png'),(64,48,'msg-32x24@2x.png'),(96,72,'msg-32x24@3x.png'),(134,100,'msg-67x50@2x.png'),(148,110,'msg-74x55@2x.png'),(1024,768,'appstore.png')]:
-              mk(f'{d}/{n}', w, h)
+              ck = lambda t, data: struct.pack('>I', len(data))+t+data+struct.pack('>I', zlib.crc32(t+data)&0xffffffff)
+              row = bytes([0]) + bytes([0x4A, 0x8C, 0xD6]) * w
+              png = b'\x89PNG\r\n\x1a\n' + ck(b'IHDR', struct.pack('>IIBBBBB',w,h,8,2,0,0,0)) + ck(b'IDAT', zlib.compress(row*h,1)) + ck(b'IEND', b'')
+              with open(p, 'wb') as f: f.write(png)
+              print(f'  OK {w}x{h} -> {p} ({len(png)}b)')
+          d = 'ios/App/StickerPackExtension/Stickers.xcstickers/iMessage App Icon.stickersiconset'
+          icons = [(54,40,'msg-27x20@2x.png'),(81,60,'msg-27x20@3x.png'),(64,48,'msg-32x24@2x.png'),(96,72,'msg-32x24@3x.png'),(120,90,'msg-60x45@2x.png'),(134,100,'msg-67x50@2x.png'),(148,110,'msg-74x55@2x.png'),(180,135,'msg-60x45@3x.png'),(1024,768,'appstore.png')]
+          errs = 0
+          for w, h, n in icons:
+              try: mk(os.path.join(d, n), w, h)
+              except Exception as e: print(f'  ERR {n}: {e}', file=sys.stderr); errs += 1
+          sys.exit(errs)
           PYEOF
-          printf '{"images":[{"filename":"msg-27x20@2x.png","idiom":"iphone","scale":"2x","size":"27x20"},{"filename":"msg-27x20@3x.png","idiom":"iphone","scale":"3x","size":"27x20"},{"filename":"msg-32x24@2x.png","idiom":"iphone","scale":"2x","size":"32x24"},{"filename":"msg-32x24@3x.png","idiom":"iphone","scale":"3x","size":"32x24"},{"filename":"msg-67x50@2x.png","idiom":"ipad","scale":"2x","size":"67x50"},{"filename":"msg-74x55@2x.png","idiom":"ipad","scale":"2x","size":"74x55"},{"filename":"appstore.png","idiom":"universal","scale":"1x","size":"1024x768"}],"info":{"author":"xcode","version":1}}' \
+          printf '{"images":[{"filename":"msg-27x20@2x.png","idiom":"universal","scale":"2x","size":"27x20"},{"filename":"msg-27x20@3x.png","idiom":"universal","scale":"3x","size":"27x20"},{"filename":"msg-32x24@2x.png","idiom":"universal","scale":"2x","size":"32x24"},{"filename":"msg-32x24@3x.png","idiom":"universal","scale":"3x","size":"32x24"},{"filename":"msg-60x45@2x.png","idiom":"universal","scale":"2x","size":"60x45"},{"filename":"msg-67x50@2x.png","idiom":"universal","scale":"2x","size":"67x50"},{"filename":"msg-74x55@2x.png","idiom":"universal","scale":"2x","size":"74x55"},{"filename":"msg-60x45@3x.png","idiom":"universal","scale":"3x","size":"60x45"},{"filename":"appstore.png","idiom":"universal","scale":"1x","size":"1024x768"}],"info":{"author":"xcode","version":1}}' \
             > "$ICON_DIR/Contents.json"
 
           for name in conie_lets_go conie_passed conie_you_got_this conie_studying conie_hi conie_nervous; do
