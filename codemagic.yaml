@@ -81,15 +81,18 @@ workflows:
             > "$EXT_DIR/Stickers.xcstickers/Contents.json"
 
           ICON_DIR="$EXT_DIR/Stickers.xcstickers/iMessage App Icon.stickersiconset"
-          SRC="resources/stickers/conie_hi.png"
-          sips -z 40  54  "$SRC" --out "$ICON_DIR/msg-27x20@2x.png"  2>/dev/null
-          sips -z 60  81  "$SRC" --out "$ICON_DIR/msg-27x20@3x.png"  2>/dev/null
-          sips -z 48  64  "$SRC" --out "$ICON_DIR/msg-32x24@2x.png"  2>/dev/null
-          sips -z 72  96  "$SRC" --out "$ICON_DIR/msg-32x24@3x.png"  2>/dev/null
-          sips -z 100 134 "$SRC" --out "$ICON_DIR/msg-67x50@2x.png"  2>/dev/null
-          sips -z 110 148 "$SRC" --out "$ICON_DIR/msg-74x55@2x.png"  2>/dev/null
-          sips -z 768 1024 "$SRC" --out "$ICON_DIR/appstore.png"     2>/dev/null
-          printf '{"images":[{"filename":"msg-27x20@2x.png","idiom":"universal","scale":"2x","size":"27x20"},{"filename":"msg-27x20@3x.png","idiom":"universal","scale":"3x","size":"27x20"},{"filename":"msg-32x24@2x.png","idiom":"universal","scale":"2x","size":"32x24"},{"filename":"msg-32x24@3x.png","idiom":"universal","scale":"3x","size":"32x24"},{"filename":"msg-67x50@2x.png","idiom":"universal","scale":"2x","size":"67x50"},{"filename":"msg-74x55@2x.png","idiom":"universal","scale":"2x","size":"74x55"},{"filename":"appstore.png","idiom":"universal","scale":"1x","size":"1024x768"}],"info":{"author":"xcode","version":1}}' \
+          python3 << 'PYEOF'
+          import struct, zlib
+          def mk(p, w, h):
+              ck = lambda t,d: struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+              row = b'\x00'+b'\x4A\x8C\xD6'*w
+              open(p,'wb').write(b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+ck(b'IDAT',zlib.compress(row*h,1))+ck(b'IEND',b''))
+              print(f'  PNG {w}x{h} -> {p}')
+          d='ios/App/StickerPackExtension/Stickers.xcstickers/iMessage App Icon.stickersiconset'
+          for w,h,n in [(54,40,'msg-27x20@2x.png'),(81,60,'msg-27x20@3x.png'),(64,48,'msg-32x24@2x.png'),(96,72,'msg-32x24@3x.png'),(134,100,'msg-67x50@2x.png'),(148,110,'msg-74x55@2x.png'),(1024,768,'appstore.png')]:
+              mk(f'{d}/{n}', w, h)
+          PYEOF
+          printf '{"images":[{"filename":"msg-27x20@2x.png","idiom":"iphone","scale":"2x","size":"27x20"},{"filename":"msg-27x20@3x.png","idiom":"iphone","scale":"3x","size":"27x20"},{"filename":"msg-32x24@2x.png","idiom":"iphone","scale":"2x","size":"32x24"},{"filename":"msg-32x24@3x.png","idiom":"iphone","scale":"3x","size":"32x24"},{"filename":"msg-67x50@2x.png","idiom":"ipad","scale":"2x","size":"67x50"},{"filename":"msg-74x55@2x.png","idiom":"ipad","scale":"2x","size":"74x55"},{"filename":"appstore.png","idiom":"universal","scale":"1x","size":"1024x768"}],"info":{"author":"xcode","version":1}}' \
             > "$ICON_DIR/Contents.json"
 
           for name in conie_lets_go conie_passed conie_you_got_this conie_studying conie_hi conie_nervous; do
