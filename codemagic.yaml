@@ -45,18 +45,12 @@ workflows:
       - name: Manage iOS Distribution certificates (stay under Apple 2-cert limit)
         script: |
           set +e
-          CERT_JSON=$(app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null)
-          CERT_COUNT=$(echo "$CERT_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
+          CERT_JSON=$(app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null || echo "[]")
+          CERT_COUNT=$(echo "$CERT_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
           echo "Found $CERT_COUNT iOS Distribution certificate(s)"
           if [ "$CERT_COUNT" -ge 2 ]; then
-            OLDEST_ID=$(echo "$CERT_JSON" | python3 -c "
-import json, sys
-certs = json.load(sys.stdin)
-sorted_certs = sorted(certs, key=lambda x: x.get('attributes', {}).get('expirationDate', ''))
-for c in sorted_certs[:-1]:
-    print(c['id'])
-" 2>/dev/null)
-            for cert_id in $OLDEST_ID; do
+            OLDEST_IDS=$(echo "$CERT_JSON" | python3 -c "import json,sys; certs=json.load(sys.stdin); [print(c['id']) for c in sorted(certs, key=lambda x: x.get('attributes',{}).get('expirationDate',''))[:-1]]" 2>/dev/null)
+            for cert_id in $OLDEST_IDS; do
               echo "Revoking old certificate: $cert_id"
               app-store-connect certificates revoke "$cert_id" || true
             done
