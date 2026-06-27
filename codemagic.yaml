@@ -46,34 +46,34 @@ workflows:
           mkdir -p "$EXT_DIR/Stickers.xcstickers/iMessage App Icon.stickersiconset"
 
           cat > "$EXT_DIR/Info.plist" << 'PLISTEOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleDisplayName</key>
-              <string>Conie Stickers</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>$(PRODUCT_NAME)</string>
-              <key>CFBundlePackageType</key>
-              <string>XPC!</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>NSExtension</key>
-              <dict>
-                  <key>NSExtensionPointIdentifier</key>
-                  <string>com.apple.message-payload-provider</string>
-              </dict>
-          </dict>
-          </plist>
-          PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Conie Stickers</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.message-payload-provider</string>
+    </dict>
+</dict>
+</plist>
+PLISTEOF
 
           printf '{"info":{"author":"xcode","version":1},"properties":{"grid-size":"regular"}}' \
             > "$EXT_DIR/Stickers.xcstickers/Contents.json"
@@ -89,47 +89,62 @@ workflows:
           done
 
           ruby - << 'RUBYEOF'
-          require 'xcodeproj'
-          proj_path = 'ios/App/App.xcodeproj'
-          project = Xcodeproj::Project.open(proj_path)
-          if project.targets.any? { |t| t.name == 'StickerPackExtension' }
-            puts 'Target already exists, skipping'; exit 0
-          end
-          main_target = project.targets.find { |t| t.name == 'App' }
-          sticker_target = project.new_target(
-            :sticker_pack, 'StickerPackExtension', :ios, '14.0'
-          )
-          sticker_target.build_configurations.each do |cfg|
-            cfg.build_settings.merge!(
-              'PRODUCT_BUNDLE_IDENTIFIER'  => 'com.passdmv.app.StickerPackExtension',
-              'PRODUCT_NAME'               => 'StickerPackExtension',
-              'INFOPLIST_FILE'             => 'StickerPackExtension/Info.plist',
-              'TARGETED_DEVICE_FAMILY'     => '1,2',
-              'IPHONEOS_DEPLOYMENT_TARGET' => '14.0',
-              'CODE_SIGN_STYLE'            => 'Manual',
-              'CODE_SIGN_IDENTITY'         => 'Apple Distribution',
-              'SKIP_INSTALL'               => 'NO'
-            )
-          end
-          ext_grp = project.main_group.find_subpath('StickerPackExtension', true)
-          xcstickers = ext_grp.new_reference('Stickers.xcstickers')
-          xcstickers.last_known_file_type = 'folder.stickers'
-          xcstickers.source_tree = '<group>'
-          sticker_target.add_resources([xcstickers])
-          main_target.add_dependency(sticker_target)
-          embed_phase = main_target.build_phases.find { |p|
-            p.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
-              p.dst_subfolder_spec == '13'
-          }
-          unless embed_phase
-            embed_phase = main_target.new_copy_files_build_phase('Embed App Extensions')
-            embed_phase.dst_subfolder_spec = '13'
-          end
-          bf = embed_phase.add_file_reference(sticker_target.product_reference)
-          bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
-          project.save
-          puts 'StickerPackExtension injected successfully'
-          RUBYEOF
+require 'xcodeproj'
+proj_path = 'ios/App/App.xcodeproj'
+project = Xcodeproj::Project.open(proj_path)
+if project.targets.any? { |t| t.name == 'StickerPackExtension' }
+  puts 'Target already exists, skipping'; exit 0
+end
+main_target = project.targets.find { |t| t.name == 'App' }
+
+# Use :app_extension to prevent auto-creation of xcstickers at wrong path
+sticker_target = project.new_target(:app_extension, 'StickerPackExtension', :ios, '14.0')
+sticker_target.product_type = 'com.apple.product-type.app-extension.messages-sticker-pack'
+
+sticker_target.build_configurations.each do |cfg|
+  cfg.build_settings.merge!(
+    'PRODUCT_BUNDLE_IDENTIFIER'  => 'com.passdmv.app.StickerPackExtension',
+    'PRODUCT_NAME'               => 'StickerPackExtension',
+    'INFOPLIST_FILE'             => 'StickerPackExtension/Info.plist',
+    'TARGETED_DEVICE_FAMILY'     => '1,2',
+    'IPHONEOS_DEPLOYMENT_TARGET' => '14.0',
+    'CODE_SIGN_STYLE'            => 'Manual',
+    'CODE_SIGN_IDENTITY'         => 'Apple Distribution',
+    'SKIP_INSTALL'               => 'NO'
+  )
+end
+
+# Clear any auto-added resources and add our own at the correct path
+sticker_target.resources_build_phase.files.each(&:remove_from_project) rescue nil
+
+ext_grp = project.main_group.find_subpath('StickerPackExtension', true)
+xcstickers = ext_grp.new_reference('Stickers.xcstickers')
+xcstickers.last_known_file_type = 'folder.stickers'
+xcstickers.source_tree = '<group>'
+sticker_target.add_resources([xcstickers])
+
+main_target.add_dependency(sticker_target)
+
+embed_phase = main_target.build_phases.find { |p|
+  p.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
+    p.dst_subfolder_spec == '13'
+}
+unless embed_phase
+  embed_phase = main_target.new_copy_files_build_phase('Embed App Extensions')
+  embed_phase.dst_subfolder_spec = '13'
+end
+bf = embed_phase.add_file_reference(sticker_target.product_reference)
+bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+
+project.save
+puts "xcstickers ref: path=#{xcstickers.path} src_tree=#{xcstickers.source_tree}"
+puts 'StickerPackExtension injected successfully'
+RUBYEOF
+
+          echo "=== Verifying sticker structure ==="
+          find ios/App/StickerPackExtension -type f | head -20
+          echo "=== pbxproj xcstickers entries ==="
+          grep "xcstickers" ios/App/App.xcodeproj/project.pbxproj | head -10
       - name: Revoke old Distribution certificates (one-time cleanup + ongoing guard)
         script: |
           set +e
@@ -163,8 +178,27 @@ workflows:
             --certificate-key=@file:/tmp/dist_cert_key.pem \
             --create
           keychain add-certificates
-          PROFILE=$(find "$HOME/Library" -name "*.mobileprovision" 2>/dev/null | head -1)
-          echo "Profile: $PROFILE"
+          # Find the main app profile specifically (bundle ID = com.passdmv.app exactly)
+          PROFILE=""
+          for p in $(find "$HOME/Library" -name "*.mobileprovision" 2>/dev/null); do
+            PLIST_CONTENT=$(openssl smime -inform der -verify -noverify -in "$p" 2>/dev/null)
+            APP_ID=$(echo "$PLIST_CONTENT" | python3 -c "
+import plistlib,sys
+try:
+    d=plistlib.load(sys.stdin.buffer)
+    print(d.get('Entitlements',{}).get('application-identifier',''))
+except: pass
+" 2>/dev/null)
+            if echo "$APP_ID" | grep -qE "\.com\.passdmv\.app$"; then
+              PROFILE="$p"
+              echo "Found main app profile: $PROFILE (app-id: $APP_ID)"
+              break
+            fi
+          done
+          if [ -z "$PROFILE" ]; then
+            PROFILE=$(find "$HOME/Library" -name "*.mobileprovision" 2>/dev/null | head -1)
+            echo "Fallback profile: $PROFILE"
+          fi
           if [ -z "$PROFILE" ]; then echo "ERROR: no .mobileprovision found"; exit 1; fi
           PLIST=$(openssl smime -inform der -verify -noverify -in "$PROFILE" 2>/dev/null)
           PROFILE_UUID=$(echo "$PLIST" | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['UUID'])")
