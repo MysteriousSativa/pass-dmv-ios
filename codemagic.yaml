@@ -3,11 +3,8 @@ workflows:
     name: Pass DMV iOS (App Store)
     instance_type: mac_mini_m2
     max_build_duration: 60
-
-    # App Store Connect API key added in Codemagic UI, named exactly: PassDMV_ASC_Key
     integrations:
       app_store_connect: PassDMV_ASC_Key
-
     environment:
       vars:
         BUNDLE_ID: "com.passdmv.app"
@@ -17,7 +14,6 @@ workflows:
       node: 20
       xcode: latest
       cocoapods: default
-
     scripts:
       - name: Install npm dependencies
         script: |
@@ -45,15 +41,18 @@ workflows:
       - name: Manage iOS Distribution certificates (stay under Apple 2-cert limit)
         script: |
           set +e
-          CERT_JSON=$(app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null || echo "[]")
-          CERT_COUNT=$(echo "$CERT_JSON" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-          echo "Found $CERT_COUNT iOS Distribution certificate(s)"
-          if [ "$CERT_COUNT" -ge 2 ]; then
-            OLDEST_IDS=$(echo "$CERT_JSON" | python3 -c "import json,sys; certs=json.load(sys.stdin); [print(c['id']) for c in sorted(certs, key=lambda x: x.get('attributes',{}).get('expirationDate',''))[:-1]]" 2>/dev/null)
-            for cert_id in $OLDEST_IDS; do
-              echo "Revoking old certificate: $cert_id"
+          # Apple counts DISTRIBUTION + IOS_DISTRIBUTION together (max 2 total)
+          app-store-connect list-certificates --type DISTRIBUTION --json 2>/dev/null > /tmp/dist_certs.json || echo "[]" > /tmp/dist_certs.json
+          app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null > /tmp/ios_certs.json || echo "[]" > /tmp/ios_certs.json
+          TOTAL=$(python3 -c "import json; print(len(json.load(open('/tmp/dist_certs.json')))+len(json.load(open('/tmp/ios_certs.json'))))" 2>/dev/null || echo "0")
+          echo "Total distribution certs: $TOTAL"
+          if [ "$TOTAL" -ge 2 ]; then
+            python3 -c "import json; certs=json.load(open('/tmp/dist_certs.json'))+json.load(open('/tmp/ios_certs.json')); [print(c['id']) for c in sorted(certs, key=lambda x: x.get('attributes',{}).get('expirationDate',''))[:-1]]" 2>/dev/null > /tmp/to_revoke.txt
+            while IFS= read -r cert_id; do
+              [ -z "$cert_id" ] && continue
+              echo "Revoking $cert_id"
               app-store-connect certificates revoke "$cert_id" || true
-            done
+            done < /tmp/to_revoke.txt
           fi
           set -e
       - name: Set up code signing (create cert + profile)
@@ -65,27 +64,16 @@ workflows:
             --certificate-key=@file:/tmp/dist_cert_key.pem \
             --create
           keychain add-certificates
-
-          # find handles spaces in "Provisioning Profiles" path correctly
           PROFILE=$(find "$HOME/Library/MobileDevice/Provisioning Profiles" -name "*.mobileprovision" 2>/dev/null | head -1)
           echo "Profile: $PROFILE"
-          if [ -z "$PROFILE" ]; then
-            echo "ERROR: no .mobileprovision found"
-            exit 1
-          fi
-
+          if [ -z "$PROFILE" ]; then echo "ERROR: no .mobileprovision found"; exit 1; fi
           PLIST=$(openssl smime -inform der -verify -noverify -in "$PROFILE" 2>/dev/null)
           PROFILE_UUID=$(echo "$PLIST" | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['UUID'])")
           TEAM_ID=$(echo "$PLIST" | python3 -c "import plistlib,sys; print(plistlib.load(sys.stdin.buffer)['TeamIdentifier'][0])")
           echo "UUID=$PROFILE_UUID  TEAM=$TEAM_ID"
-
-          # Save for Build step
           echo "export PROFILE_UUID='$PROFILE_UUID'" > /tmp/signing.env
           echo "export TEAM_ID='$TEAM_ID'" >> /tmp/signing.env
-
-          # Switch Xcode project from Automatic -> Manual signing
-          sed -i '' "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g" \
-            ios/App/App.xcodeproj/project.pbxproj 2>/dev/null || true
+          sed -i '' "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g" ios/App/App.xcodeproj/project.pbxproj 2>/dev/null || true
           xcode-project use-profiles
       - name: Increment build number
         script: |
@@ -99,11 +87,9 @@ workflows:
             --workspace "$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
             --archive-flags "CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=Apple\ Distribution PROVISIONING_PROFILE=$PROFILE_UUID DEVELOPMENT_TEAM=$TEAM_ID"
-
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-
     publishing:
       app_store_connect:
         auth: integration
