@@ -20,9 +20,10 @@ workflows:
       - name: Install npm dependencies
         script: |
           npm install --legacy-peer-deps
-      - name: Generate native iOS project
+      - name: Generate native iOS project (fresh every build)
         script: |
-          if [ ! -d "ios" ]; then npx cap add ios; fi
+          rm -rf ios
+          npx cap add ios
           npx cap sync ios
       - name: Remove Game Center entitlement (not used by this app)
         script: |
@@ -40,193 +41,6 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App && pod install
-      - name: Inject iMessage Sticker Pack Extension
-        script: |
-          EXT_DIR="ios/App/StickerPackExtension"
-          ICON_DIR="$EXT_DIR/Stickers.xcstickers/iMessage App Icon.stickersiconset"
-          mkdir -p "$ICON_DIR"
-
-          cat > "$EXT_DIR/Info.plist" << 'PLISTEOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleDisplayName</key>
-              <string>Conie Stickers</string>
-              <key>CFBundleExecutable</key>
-              <string>$(EXECUTABLE_NAME)</string>
-              <key>CFBundleIdentifier</key>
-              <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>$(PRODUCT_NAME)</string>
-              <key>CFBundlePackageType</key>
-              <string>XPC!</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>CFBundleVersion</key>
-              <string>1</string>
-              <key>NSExtension</key>
-              <dict>
-                  <key>NSExtensionPointIdentifier</key>
-                  <string>com.apple.message-payload-provider</string>
-                  <key>NSExtensionPrincipalClass</key>
-                  <string>StickerBrowserViewController</string>
-              </dict>
-          </dict>
-          </plist>
-          PLISTEOF
-
-          printf '{"info":{"author":"xcode","version":1},"properties":{"grid-size":"regular"}}' \
-            > "$EXT_DIR/Stickers.xcstickers/Contents.json"
-
-          echo "=== Generating iMessage icon PNGs ==="
-          python3 - << 'PYEOF'
-          import struct, zlib, sys, os
-          def mk(path, w, h):
-              def ck(t, d):
-                  return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
-              rows = b''
-              for _ in range(h):
-                  row = bytes([0])
-                  for _ in range(w):
-                      row += bytes([0x4A, 0x8C, 0xD6, 0xFF])
-                  rows += row
-              png = (b'\x89PNG\r\n\x1a\n'
-                     + ck(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
-                     + ck(b'IDAT', zlib.compress(rows, 9))
-                     + ck(b'IEND', b''))
-              with open(path, 'wb') as f:
-                  f.write(png)
-              print(f'  OK {w}x{h} -> {os.path.basename(path)} ({len(png)}b)')
-          d = 'ios/App/StickerPackExtension/Stickers.xcstickers/iMessage App Icon.stickersiconset'
-          os.makedirs(d, exist_ok=True)
-          icons = [
-              (54,  40,  'msg-27x20@2x.png'),
-              (81,  60,  'msg-27x20@3x.png'),
-              (64,  48,  'msg-32x24@2x.png'),
-              (96,  72,  'msg-32x24@3x.png'),
-              (120, 90,  'msg-60x45@2x.png'),
-              (180, 135, 'msg-60x45@3x.png'),
-              (134, 100, 'msg-67x50@2x.png'),
-              (148, 110, 'msg-74x55@2x.png'),
-              (1024, 768, 'appstore.png'),
-          ]
-          errs = 0
-          for w, h, name in icons:
-              try:
-                  mk(os.path.join(d, name), w, h)
-              except Exception as e:
-                  print(f'  ERR {name}: {e}', file=sys.stderr)
-                  errs += 1
-          sys.exit(errs)
-          PYEOF
-
-          echo "=== Writing Contents.json ==="
-          cat > "$ICON_DIR/Contents.json" << 'CONTENTSEOF'
-          {
-            "images" : [
-              { "filename":"msg-27x20@2x.png","idiom":"universal","platform":"ios","scale":"2x","size":"27x20" },
-              { "filename":"msg-27x20@3x.png","idiom":"universal","platform":"ios","scale":"3x","size":"27x20" },
-              { "filename":"msg-32x24@2x.png","idiom":"universal","platform":"ios","scale":"2x","size":"32x24" },
-              { "filename":"msg-32x24@3x.png","idiom":"universal","platform":"ios","scale":"3x","size":"32x24" },
-              { "filename":"msg-60x45@2x.png","idiom":"iphone","scale":"2x","size":"60x45" },
-              { "filename":"msg-60x45@3x.png","idiom":"iphone","scale":"3x","size":"60x45" },
-              { "filename":"msg-67x50@2x.png","idiom":"ipad","scale":"2x","size":"67x50" },
-              { "filename":"msg-74x55@2x.png","idiom":"ipad","scale":"2x","size":"74x55" },
-              { "filename":"appstore.png","idiom":"ios-marketing","platform":"ios","scale":"1x","size":"1024x768" }
-            ],
-            "info" : { "author":"xcode","version":1 }
-          }
-          CONTENTSEOF
-
-          echo "=== Verifying icon files ==="
-          ls -la "$ICON_DIR/"
-          echo "=== Verifying actool compiles icons cleanly ==="
-          mkdir -p /tmp/actool_verify
-          xcrun actool \
-            --compile /tmp/actool_verify \
-            --platform iphoneos \
-            --minimum-deployment-target 14.0 \
-            --output-format human-readable-text \
-            --warnings --errors --notices \
-            "$EXT_DIR/Stickers.xcstickers" 2>&1 || true
-          echo "actool output dir:"
-          ls -la /tmp/actool_verify/ 2>/dev/null || echo "(empty)"
-
-          echo "=== Copying sticker PNGs ==="
-          for name in conie_lets_go conie_passed conie_you_got_this conie_studying conie_hi conie_nervous; do
-            mkdir -p "$EXT_DIR/Stickers.xcstickers/${name}.sticker"
-            if [ -f "resources/stickers/${name}.png" ]; then
-              cp "resources/stickers/${name}.png" "$EXT_DIR/Stickers.xcstickers/${name}.sticker/"
-              echo "  Copied ${name}.png"
-            else
-              echo "  WARN: ${name}.png missing, generating placeholder"
-              python3 -c "
-          import struct, zlib
-          def ck(t,d): return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
-          w,h=300,300
-          rows=b''
-          for _ in range(h):
-              row=bytes([0])
-              for _ in range(w): row+=bytes([0x4A,0x8C,0xD6,0xFF])
-              rows+=row
-          png=b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+ck(b'IDAT',zlib.compress(rows,1))+ck(b'IEND',b'')
-          open('$EXT_DIR/Stickers.xcstickers/${name}.sticker/${name}.png','wb').write(png)
-          "
-            fi
-            printf '{"info":{"author":"xcode","version":1},"properties":{"filename":"%s.png"}}' \
-              "$name" > "$EXT_DIR/Stickers.xcstickers/${name}.sticker/Contents.json"
-          done
-
-          echo "=== Injecting xcodeproj target (skip if exists) ==="
-          ruby - << 'RUBYEOF'
-          require 'xcodeproj'
-          proj_path = 'ios/App/App.xcodeproj'
-          project = Xcodeproj::Project.open(proj_path)
-          if project.targets.any? { |t| t.name == 'StickerPackExtension' }
-            puts 'Target already exists, skipping xcodeproj injection'
-            exit 0
-          end
-          main_target = project.targets.find { |t| t.name == 'App' }
-          sticker_target = project.new_target(:app_extension, 'StickerPackExtension', :ios, '14.0')
-          sticker_target.product_type = 'com.apple.product-type.app-extension.messages-sticker-pack'
-          sticker_target.build_configurations.each do |cfg|
-            cfg.build_settings.merge!(
-              'PRODUCT_BUNDLE_IDENTIFIER'  => 'com.passdmv.app.StickerPackExtension',
-              'PRODUCT_NAME'               => 'StickerPackExtension',
-              'INFOPLIST_FILE'             => 'StickerPackExtension/Info.plist',
-              'TARGETED_DEVICE_FAMILY'     => '1,2',
-              'IPHONEOS_DEPLOYMENT_TARGET' => '14.0',
-              'CODE_SIGN_STYLE'            => 'Manual',
-              'CODE_SIGN_IDENTITY'         => 'Apple Distribution',
-              'SKIP_INSTALL'               => 'NO'
-            )
-          end
-          sticker_target.resources_build_phase.files.each(&:remove_from_project) rescue nil
-          xcstickers = project.main_group.new_reference('StickerPackExtension/Stickers.xcstickers')
-          xcstickers.last_known_file_type = 'folder.stickers'
-          xcstickers.source_tree = 'SOURCE_ROOT'
-          sticker_target.add_resources([xcstickers])
-          main_target.add_dependency(sticker_target)
-          embed_phase = main_target.build_phases.find { |p|
-            p.is_a?(Xcodeproj::Project::Object::PBXCopyFilesBuildPhase) &&
-              p.dst_subfolder_spec == '13'
-          }
-          unless embed_phase
-            embed_phase = main_target.new_copy_files_build_phase('Embed App Extensions')
-            embed_phase.dst_subfolder_spec = '13'
-          end
-          bf = embed_phase.add_file_reference(sticker_target.product_reference)
-          bf.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
-          project.save
-          puts "xcstickers ref: path=#{xcstickers.path}"
-          puts 'StickerPackExtension injected successfully'
-          RUBYEOF
-
-          echo "=== Final structure ==="
-          find ios/App/StickerPackExtension -type f | sort
       - name: Revoke old Distribution certificates (one-time cleanup + ongoing guard)
         script: |
           set +e
@@ -252,10 +66,6 @@ workflows:
           keychain initialize
           echo "$CERT_PRIVATE_KEY_B64" | base64 --decode > /tmp/dist_cert_key.pem
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --certificate-key=@file:/tmp/dist_cert_key.pem \
-            --create
-          app-store-connect fetch-signing-files "${BUNDLE_ID}.StickerPackExtension" \
             --type IOS_APP_STORE \
             --certificate-key=@file:/tmp/dist_cert_key.pem \
             --create
@@ -289,11 +99,6 @@ workflows:
           echo "export TEAM_ID='$TEAM_ID'" >> /tmp/signing.env
           sed -i '' "s/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g" ios/App/App.xcodeproj/project.pbxproj 2>/dev/null || true
           xcode-project use-profiles
-      - name: Clear derived data cache
-        script: |
-          echo "Clearing Xcode derived data to force fresh icon compilation..."
-          rm -rf ~/Library/Developer/Xcode/DerivedData/
-          echo "Done."
       - name: Increment build number
         script: |
           cd ios/App
