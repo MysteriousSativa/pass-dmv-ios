@@ -40,19 +40,24 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd ios/App && pod install
-      - name: Manage iOS Distribution certificates (stay under Apple 2-cert limit)
+      - name: Revoke old Distribution certificates (one-time cleanup + ongoing guard)
         script: |
           set +e
           keychain initialize
+          # Revoke the two known stale certs by ID (gracefully ignored if already gone)
+          for CERT_ID in Z6T2646N57 5T68W847ZF; do
+            echo "Revoking $CERT_ID"
+            app-store-connect certificates revoke "$CERT_ID" 2>/dev/null || true
+          done
+          # Also purge any future overflow via listing (best-effort)
           app-store-connect list-certificates --type DISTRIBUTION --json 2>/dev/null > /tmp/dist_certs.json || echo "[]" > /tmp/dist_certs.json
-          app-store-connect list-certificates --type IOS_DISTRIBUTION --json 2>/dev/null > /tmp/ios_certs.json || echo "[]" > /tmp/ios_certs.json
-          TOTAL=$(python3 -c "import json; print(len(json.load(open('/tmp/dist_certs.json')))+len(json.load(open('/tmp/ios_certs.json'))))" 2>/dev/null || echo "0")
-          echo "Total distribution certs: $TOTAL"
+          TOTAL=$(python3 -c "import json; print(len(json.load(open('/tmp/dist_certs.json'))))" 2>/dev/null || echo "0")
+          echo "Remaining Distribution certs: $TOTAL"
           if [ "$TOTAL" -ge 2 ]; then
-            python3 -c "import json; certs=json.load(open('/tmp/dist_certs.json'))+json.load(open('/tmp/ios_certs.json')); [print(c['id']) for c in sorted(certs, key=lambda x: x.get('attributes',{}).get('expirationDate',''))[:-1]]" 2>/dev/null > /tmp/to_revoke.txt
+            python3 -c "import json; certs=json.load(open('/tmp/dist_certs.json')); [print(c['id']) for c in sorted(certs, key=lambda x: x.get('attributes',{}).get('expirationDate',''))[:-1]]" 2>/dev/null > /tmp/to_revoke.txt
             while IFS= read -r cert_id; do
               [ -z "$cert_id" ] && continue
-              echo "Revoking $cert_id"
+              echo "Revoking overflow: $cert_id"
               app-store-connect certificates revoke "$cert_id" || true
             done < /tmp/to_revoke.txt
           fi
